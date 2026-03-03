@@ -1,0 +1,107 @@
+version: '3.8'
+
+services:
+  github-runner:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.runner
+    container_name: github-actions-runner
+    restart: unless-stopped
+    
+    # Environment variables
+    env_file:
+      - .env
+    environment:
+      - DOCKER_HOST=unix:///var/run/docker.sock
+      
+    # Volumes
+    volumes:
+      # Docker socket for building images
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Persistent runner data
+      - runner_data:/opt/github-runner/_work
+      - runner_logs:/opt/github-runner/logs
+      # Lock file directory
+      - /tmp:/tmp
+      # Optional: mount host's docker config
+      - ~/.docker:/home/github-runner/.docker:ro
+      
+    # Network configuration
+    networks:
+      - runner-network
+      
+    # Resource limits (adjust for Raspberry Pi)
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '2.0'
+        reservations:
+          memory: 512M
+          cpus: '0.5'
+          
+    # Security
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - DAC_OVERRIDE
+      - SETGID
+      - SETUID
+      
+    # Health check
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -f 'Runner.Worker' || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Optional: monitoring container
+  watchtower:
+    image: containrrr/watchtower:latest
+    container_name: watchtower
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - WATCHTOWER_CLEANUP=true
+      - WATCHTOWER_SCHEDULE=0 0 2 * * *  # Daily at 2 AM
+      - WATCHTOWER_INCLUDE_RESTARTING=true
+    networks:
+      - runner-network
+    profiles:
+      - monitoring
+
+  # Optional: Docker registry cache
+  registry-cache:
+    image: registry:2
+    container_name: registry-cache
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    environment:
+      REGISTRY_PROXY_REMOTEURL: https://registry-1.docker.io
+      REGISTRY_STORAGE_CACHE_BLOBDESCRIPTOR: inmemory
+    volumes:
+      - registry_cache:/var/lib/registry
+    networks:
+      - runner-network
+    profiles:
+      - cache
+
+volumes:
+  runner_data:
+    driver: local
+  runner_logs:
+    driver: local
+  registry_cache:
+    driver: local
+
+networks:
+  runner-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16

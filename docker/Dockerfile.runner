@@ -1,0 +1,73 @@
+# Dockerfile for GitHub Actions Runner Environment
+# This is optional - for containerized runner deployment
+
+FROM ubuntu:22.04
+
+# Set environment variables
+ENV DEBIAN_FRONTEND=noninteractive
+ENV RUNNER_VERSION=2.314.1
+
+# Install dependencies
+RUN apt-get update && apt-get install -y \
+    curl \
+    wget \
+    git \
+    jq \
+    docker.io \
+    docker-compose \
+    sudo \
+    ca-certificates \
+    gnupg \
+    lsb-release \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create runner user
+RUN useradd -r -s /bin/bash -d /opt/github-runner -m github-runner && \
+    usermod -aG docker github-runner && \
+    usermod -aG sudo github-runner && \
+    echo "github-runner ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
+
+# Set working directory
+WORKDIR /opt/github-runner
+
+# Download and install GitHub Actions runner
+RUN ARCH=$(uname -m) && \
+    case $ARCH in \
+        aarch64) RUNNER_ARCH="linux-arm64" ;; \
+        armv7l) RUNNER_ARCH="linux-arm" ;; \
+        x86_64) RUNNER_ARCH="linux-x64" ;; \
+        *) echo "Unsupported architecture: $ARCH"; exit 1 ;; \
+    esac && \
+    wget -O actions-runner.tar.gz \
+    "https://github.com/actions/runner/releases/download/v${RUNNER_VERSION}/actions-runner-${RUNNER_ARCH}-${RUNNER_VERSION}.tar.gz" && \
+    tar xzf actions-runner.tar.gz && \
+    rm actions-runner.tar.gz
+
+# Install runner dependencies
+RUN ./bin/installdependencies.sh
+
+# Copy project files
+COPY scripts/ ./scripts/
+COPY config/ ./config/
+COPY .env.template ./
+
+# Set ownership and permissions
+RUN chown -R github-runner:github-runner /opt/github-runner && \
+    chmod +x scripts/*.sh
+
+# Switch to runner user
+USER github-runner
+
+# Create necessary directories
+RUN mkdir -p logs _work
+
+# Expose commonly used ports (optional)
+EXPOSE 8080 3000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD pgrep -f "Runner.Worker" || exit 1
+
+# Default command
+CMD ["./scripts/start-runner.sh"]

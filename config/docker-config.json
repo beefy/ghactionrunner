@@ -1,0 +1,30 @@
+{
+  "registry": {
+    "default": "docker.io",
+    "mirrors": [],
+    "insecure_registries": []
+  },
+  "daemon": {
+    "log_driver": "json-file",
+    "log_opts": {
+      "max-size": "10m",
+      "max-file": "3"
+    },
+    "storage_driver": "overlay2",
+    "max_concurrent_downloads": 3,
+    "max_concurrent_uploads": 3
+  },
+  "build": {
+    "default_platform": "linux/arm64",
+    "buildkit_enabled": true,
+    "cache_from": [],
+    "cache_to": [],
+    "build_args": {}
+  },
+  "cleanup": {
+    "auto_prune": true,
+    "prune_interval": "24h",
+    "keep_images": 5,
+    "remove_dangling": true
+  }
+}

@@ -1,0 +1,120 @@
+# Example GitHub Actions Workflow for Raspberry Pi Builder
+# Save this file in your target repository at: .github/workflows/build-and-deploy.yml
+
+name: Build and Deploy to DockerHub
+
+on:
+  push:
+    branches: [main, develop]
+    tags: ["v*"]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    name: Build Docker Image on Raspberry Pi
+    runs-on: [self-hosted, linux, arm64, docker, raspi]
+    timeout-minutes: 60
+
+    strategy:
+      matrix:
+        include:
+          - image: my-app
+            dockerfile: Dockerfile
+            context: .
+          # Add more images as needed
+          # - image: my-worker
+          #   dockerfile: Dockerfile.worker
+          #   context: ./worker
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up build environment
+        run: |
+          echo "Setting up build environment..."
+          df -h
+          free -h
+          docker --version
+
+      - name: Determine image tag
+        id: meta
+        run: |
+          echo "Building image: ${{ matrix.image }}"
+          
+          if [[ $GITHUB_REF == refs/tags/* ]]; then
+            # Tag push - use the tag as version
+            VERSION=${GITHUB_REF#refs/tags/}
+            echo "tag=${VERSION}" >> $GITHUB_OUTPUT
+          elif [[ $GITHUB_REF == refs/heads/main ]]; then
+            # Main branch - use 'latest'
+            echo "tag=latest" >> $GITHUB_OUTPUT
+          else
+            # Feature branch or PR - use branch name and short SHA
+            BRANCH_NAME=${GITHUB_REF#refs/heads/}
+            SAFE_BRANCH=$(echo "$BRANCH_NAME" | tr '/' '-' | tr '[:upper:]' '[:lower:]')
+            echo "tag=${SAFE_BRANCH}-${GITHUB_SHA::8}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Build and push Docker image
+        env:
+          # These should be set as repository secrets
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+          DOCKER_REGISTRY: docker.io
+          LOCK_FILE_DIR: /tmp
+          LOCK_FILE_NAME: raspi-build.lock
+        run: |
+          # Use the custom build script that handles locking
+          /opt/github-runner/scripts/docker-build.sh \
+            "${{ matrix.dockerfile }}" \
+            "${{ matrix.image }}" \
+            "${{ steps.meta.outputs.tag }}" \
+            "${{ matrix.context }}" \
+            "BUILD_DATE=$(date -u +'%Y-%m-%dT%H:%M:%SZ'),VCS_REF=${GITHUB_SHA::8}"
+
+      - name: Clean up
+        if: always()
+        run: |
+          echo "Cleaning up build artifacts..."
+          /opt/github-runner/scripts/cleanup.sh --no-logs --no-workspace
+          df -h
+
+  security-scan:
+    name: Security Scan
+    runs-on: [self-hosted, linux, arm64, docker, raspi] 
+    needs: build
+    if: github.event_name == 'push'
+
+    steps:
+      - name: Run Trivy vulnerability scanner
+        run: |
+          # Install trivy if not present
+          if ! command -v trivy &> /dev/null; then
+            wget -qO- https://github.com/aquasecurity/trivy/releases/latest/download/trivy_Linux-ARM64.tar.gz | tar -xz
+            sudo mv trivy /usr/local/bin/
+          fi
+          
+          # Scan the image
+          trivy image --exit-code 0 --severity LOW,MEDIUM docker.io/${{ secrets.DOCKERHUB_USERNAME }}/my-app:latest
+          trivy image --exit-code 1 --severity HIGH,CRITICAL docker.io/${{ secrets.DOCKERHUB_USERNAME }}/my-app:latest
+
+  notify:
+    name: Notify Build Status
+    runs-on: [self-hosted, linux, arm64, docker, raspi]
+    needs: [build, security-scan]
+    if: always()
+
+    steps:
+      - name: Notify success
+        if: needs.build.result == 'success'
+        run: |
+          echo "✅ Build completed successfully!"
+          # Add notification logic here (Slack, Discord, email, etc.)
+
+      - name: Notify failure
+        if: needs.build.result == 'failure'
+        run: |
+          echo "❌ Build failed!"
+          # Add failure notification logic here

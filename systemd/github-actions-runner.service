@@ -1,0 +1,39 @@
+[Unit]
+Description=GitHub Actions Runner for Raspberry Pi
+After=network.target docker.service
+Wants=docker.service
+
+[Service]
+Type=forking
+User=github-runner
+Group=github-runner
+WorkingDirectory=/opt/github-runner
+ExecStart=/opt/github-runner/scripts/start-runner.sh
+ExecStop=/opt/github-runner/scripts/stop-runner.sh
+ExecReload=/bin/kill -USR1 $MAINPID
+PIDFile=/opt/github-runner/logs/runner.pid
+Restart=always
+RestartSec=10
+StartLimitInterval=0
+
+# Environment
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+EnvironmentFile=-/opt/github-runner/.env
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/github-runner /tmp
+
+# Resource limits
+LimitNOFILE=1024
+LimitNPROC=512
+
+# Logging
+StandardOutput=append:/opt/github-runner/logs/service.log
+StandardError=append:/opt/github-runner/logs/service-error.log
+
+[Install]
+WantedBy=multi-user.target

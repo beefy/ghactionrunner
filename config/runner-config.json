@@ -1,0 +1,28 @@
+{
+  "runner": {
+    "name": "raspi-builder",
+    "labels": ["self-hosted", "linux", "arm64", "docker", "raspi"],
+    "work_directory": "_work",
+    "log_level": "info"
+  },
+  "build": {
+    "timeout_seconds": 3600,
+    "max_concurrent_builds": 1,
+    "lock_file_enabled": true,
+    "cleanup_after_build": true,
+    "docker_cleanup": true
+  },
+  "monitoring": {
+    "enabled": true,
+    "log_retention_days": 7,
+    "metrics_enabled": false
+  },
+  "security": {
+    "restrict_network": false,
+    "sandbox_builds": false,
+    "allowed_registries": [
+      "docker.io",
+      "ghcr.io"
+    ]
+  }
+}
